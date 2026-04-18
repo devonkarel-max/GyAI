@@ -1,0 +1,5 @@
+{
+  "name": "Gyai",
+  "description": "AI driven presentation generator that creates slides, images, and audio narration from text and files, exporting to PPTX.",
+  "requestFramePermissions": []
+}

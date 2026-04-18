@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: presentations
+    // Document ID: auto-generated
+    // Fields:
+    //   - id: string (required)
+    //   - userId: string (required)
+    //   - topic: string (required)
+    //   - presentationTitle: string (required)
+    //   - createdAt: timestamp (required)
+    //   - slides: array (required)
+    //   - sources: array (required)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function isValidPresentation(data) {
+      return data.userId is string &&
+             data.topic is string &&
+             data.presentationTitle is string &&
+             data.slides is list &&
+             data.sources is list;
+    }
+
+    match /presentations/{presentationId} {
+      allow read: if isDocOwner();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidPresentation(request.resource.data);
+      allow update: if isDocOwner() && isValidPresentation(request.resource.data);
+      allow delete: if isDocOwner();
+    }
+
+    match /assets/{assetId} {
+      allow read: if isDocOwner();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isDocOwner();
+      allow delete: if isDocOwner();
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+  }
+}
