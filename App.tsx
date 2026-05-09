@@ -3,34 +3,44 @@ import React, { useState, useEffect } from 'react';
 import { InputSection } from './components/InputSection';
 import { LoadingScreen } from './components/LoadingScreen';
 import { PresentationViewer } from './components/PresentationViewer';
+import { Dashboard } from './components/Dashboard';
+import { Gallery } from './components/Gallery';
 import { AppState, PresentationData, Slide, Asset } from './types';
-import { generatePresentationStructure, generateSlideImage, generateSlideAudio, validateImage, uploadToCloudinary, nameAsset } from './services/geminiService';
+import { generatePresentationOutline, generatePresentationFromOutline, generateSlideImage, generateSlideAudio, validateImage, uploadToCloudinary, nameAsset } from './services/geminiService';
+import { PresentationOutline } from './components/PresentationOutline';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, User, signOut } from 'firebase/auth';
 import { collection, addDoc, query, where, getDocs, serverTimestamp, orderBy } from 'firebase/firestore';
-import { LogIn, History, Plus, LogOut, Trash2 } from 'lucide-react';
+import { LogIn, History, Plus, LogOut, Trash2, AlertTriangle, X } from 'lucide-react';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [history, setHistory] = useState<PresentationData[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
+  const [isReadOnly, setIsReadOnly] = useState(false);
 
   const [state, setState] = useState<AppState>({
-    step: 'input',
+    step: 'dashboard',
     topic: '',
     voice: 'Kore',
     slideCount: 5,
     files: [],
     filePreviews: [],
     presentation: null,
+    outline: null,
     currentSlideIndex: 0,
     loadingStatus: '',
     progress: 0
   });
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sharedId = params.get('share');
+    if (sharedId) {
+      loadSharedPresentation(sharedId);
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setAuthReady(true);
@@ -52,8 +62,13 @@ const App: React.FC = () => {
       const snapshot = await getDocs(q);
       const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Asset));
       setAssets(docs);
-    } catch (error) {
+      if (state.error?.includes('databáze')) setState(prev => ({ ...prev, error: undefined }));
+    } catch (error: any) {
       console.error("Error fetching assets:", error);
+      const rawMessage = error.message || String(error);
+      if (rawMessage.toLowerCase().includes('quota') || error.code === 'resource-exhausted') {
+        setState(prev => ({ ...prev, error: `Databáze vyčerpala limit (Quota Exceeded). Zkus to zítra. Detail: ${rawMessage}` }));
+      }
     }
   };
 
@@ -67,8 +82,37 @@ const App: React.FC = () => {
       const snapshot = await getDocs(q);
       const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PresentationData));
       setHistory(docs);
-    } catch (error) {
+      if (state.error?.includes('databáze')) setState(prev => ({ ...prev, error: undefined }));
+    } catch (error: any) {
       console.error("Error fetching history:", error);
+      const rawMessage = error.message || String(error);
+      if (rawMessage.toLowerCase().includes('quota') || error.code === 'resource-exhausted') {
+        setState(prev => ({ ...prev, error: `Databáze vyčerpala limit (Quota Exceeded). Zkus to zítra. Detail: ${rawMessage}` }));
+      }
+    }
+  };
+
+  const loadSharedPresentation = async (id: string) => {
+    try {
+      setState(p => ({ ...p, step: 'generating', loadingStatus: 'Načítám sdílenou prezentaci...', progress: 30 }));
+      const { doc, getDoc } = await import('firebase/firestore');
+      const docSnap = await getDoc(doc(db, 'presentations', id));
+      
+      if (docSnap.exists()) {
+        const presentation = { id: docSnap.id, ...docSnap.data() } as PresentationData;
+        setState(prev => ({ 
+          ...prev, 
+          step: 'preview', 
+          presentation,
+          loadingStatus: 'Hotovo.'
+        }));
+        setIsReadOnly(true);
+      } else {
+        setState(prev => ({ ...prev, step: 'dashboard', error: "Sdílená prezentace nebyla nalezena." }));
+      }
+    } catch (error) {
+      console.error("Error loading shared presentation:", error);
+      setState(prev => ({ ...prev, step: 'dashboard', error: "Nemohu načíst sdílenou prezentaci." }));
     }
   };
 
@@ -94,7 +138,6 @@ const App: React.FC = () => {
     try {
       await signOut(auth);
       setHistory([]);
-      setShowHistory(false);
     } catch (error) {
       console.error("Logout failed:", error);
     }
@@ -112,40 +155,126 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDeleteAsset = async (id: string) => {
+    if (!confirm("Opravdu chceš tento vizuál smazat?")) return;
+    try {
+      const { deleteDoc, doc } = await import('firebase/firestore');
+      await deleteDoc(doc(db, 'assets', id));
+      setAssets(prev => prev.filter(a => a.id !== id));
+    } catch (error) {
+      console.error("Delete asset error:", error);
+    }
+  };
+
   const getRandomShape = () => {
     const shapes = ['rounded-[3rem]', 'rounded-tl-[5rem] rounded-br-[5rem]', 'rounded-tr-[5rem] rounded-bl-[5rem]', 'rounded-[4rem]'];
     return shapes[Math.floor(Math.random() * shapes.length)];
   };
 
   const getCoordinates = (index: number) => {
-      const colWidth = 1600;
-      const rowHeight = 1000;
+      const colWidth = 2000;
+      const rowHeight = 1200;
       const cols = 3; 
       const row = Math.floor(index / cols);
       const colPos = index % cols;
-      const actualCol = row % 2 === 0 ? colPos : (cols - 1) - colPos;
-      return { x: actualCol * colWidth, y: row * rowHeight };
+      
+      return { 
+        x: colPos * colWidth, 
+        y: row * rowHeight,
+        z: 0,
+        rotateX: 0,
+        rotateY: 0,
+        rotateZ: 0
+      };
   };
 
-  const handleGenerateStructure = async () => {
-    setState(prev => ({ ...prev, step: 'generating', loadingStatus: 'Sestavuji strukturu a vyhledávám podklady...', progress: 15 }));
-    try {
-      const { slides, sources, title, themeColor, welcomeSlide } = await generatePresentationStructure(state.topic, state.slideCount, state.files);
-      
-      if (!slides || slides.length === 0) {
-        throw new Error("Nebyl vygenerován žádný obsah.");
-      }
+  const handleReset = () => {
+    if (isReadOnly) {
+      window.history.replaceState({}, '', window.location.pathname);
+      setIsReadOnly(false);
+    }
+    setState(p => ({...p, step: 'dashboard', presentation: null, error: undefined}));
+  };
 
+  const handleGenerateOutline = async () => {
+    setState(prev => ({ ...prev, step: 'generating', loadingStatus: 'Navrhuji osnovu prezentace...', progress: 10, error: undefined }));
+    try {
+      const { title, outline } = await generatePresentationOutline(state.topic, state.slideCount, state.files);
+      setState(prev => ({ ...prev, step: 'outline', outline, loadingStatus: '', progress: 40 }));
+    } catch (error: any) {
+      setState(prev => ({ ...prev, step: 'input', error: error.message || "Nepodařilo se vygenerovat osnovu." }));
+    }
+  };
+
+  const handleFullGenerate = async () => {
+    if (!state.outline) return;
+    setState(prev => ({ ...prev, step: 'generating', loadingStatus: 'Sestavuji kompletní obsah a podklady...', progress: 50, error: undefined }));
+    try {
+      const { slides, sources, title, themeColor, welcomeSlide } = await generatePresentationFromOutline(state.topic, state.outline, state.files);
+      
+      const layouts: Slide['layout'][] = ['classic', 'reversed', 'modern', 'immersive', 'minimal', 'bento', 'split', 'hero', 'gallery'];
       const processedSlides: Slide[] = slides.map((s, index) => {
           const coords = getCoordinates(index);
-          return { ...s, shape: getRandomShape(), x: coords.x, y: coords.y, layout: index % 2 === 0 ? 'classic' : 'reversed' };
+          const layout = index === 0 ? 'hero' : layouts[Math.floor(Math.random() * layouts.length)];
+          return { 
+            ...s, 
+            shape: getRandomShape(), 
+            x: coords.x, 
+            y: coords.y, 
+            z: coords.z,
+            rotateX: coords.rotateX,
+            rotateY: coords.rotateY,
+            rotateZ: coords.rotateZ,
+            layout 
+          };
       });
-      setState(prev => ({ ...prev, step: 'preview', presentation: { topic: state.topic, presentationTitle: title, slides: processedSlides, sources, themeColor, welcomeSlide }, progress: 100 }));
+
+      setState(prev => ({ 
+        ...prev, 
+        step: 'preview', 
+        presentation: { topic: state.topic, presentationTitle: title, slides: processedSlides, sources, themeColor, welcomeSlide }, 
+        progress: 100 
+      }));
       generateContentBackground(processedSlides, state.voice);
     } catch (error: any) {
-      alert(error.message || "Chyba při generování.");
-      setState(prev => ({ ...prev, step: 'input' }));
+      setState(prev => ({ ...prev, step: 'outline', error: error.message || "Chyba při generování obsahu." }));
     }
+  };
+
+  const handleGenerateStructure = handleGenerateOutline;
+
+  const handleCreateEmpty = () => {
+    const emptyPresentation: PresentationData = {
+      topic: "Nová Prezentace",
+      presentationTitle: "Nová Prezentace",
+      themeColor: "#3b82f6",
+      welcomeSlide: {
+        title: "Nová Prezentace",
+        subtitle: "PODNADPIS",
+        description: "Zde začíná tvůj příběh.",
+        presenter: user?.displayName || "AI Student"
+      },
+      slides: [
+        {
+          id: 0,
+          title: "První Slide",
+          bulletPoints: ["Tvůj první bod"],
+          speakerNotes: "",
+          imagePrompt: "Minimalist placeholder",
+          x: 0,
+          y: 0,
+          shape: getRandomShape(),
+          layout: 'classic'
+        }
+      ],
+      sources: []
+    };
+    setState(prev => ({ 
+      ...prev, 
+      step: 'preview', 
+      presentation: emptyPresentation,
+      currentSlideIndex: 0 
+    }));
   };
 
   const generateContentBackground = async (slides: Slide[], voice: string) => {
@@ -155,6 +284,25 @@ const App: React.FC = () => {
               if (img) {
                 const validation = await validateImage(img, slide.title, slide.bulletPoints);
                 const url = await uploadToCloudinary(img, 'image');
+                
+                // Save to Asset Library automatically
+                if (user && url) {
+                  try {
+                    const name = await nameAsset(img, slide.imagePrompt);
+                    const assetData = {
+                      name: `Slide ${i+1}: ${name}`,
+                      imageBase64: url,
+                      type: 'background',
+                      userId: user.uid,
+                      createdAt: new Date().toISOString()
+                    };
+                    const docRef = await addDoc(collection(db, 'assets'), assetData);
+                    setAssets(prev => [{ id: docRef.id, ...assetData } as Asset, ...prev]);
+                  } catch (e) {
+                    console.error("Auto-save asset failed:", e);
+                  }
+                }
+
                 // Clear imageBase64 once we have a URL to save memory and prevent Firestore size limits
                 updateSlide(i, { 
                   imageBase64: url ? undefined : img, 
@@ -166,7 +314,7 @@ const App: React.FC = () => {
       }
       for (let i = 0; i < slides.length; i++) {
          try {
-             setState(prev => ({ ...prev, loadingStatus: `Dabuji slide ${i + 1}...` }));
+             setState(prev => ({ ...prev, loadingStatus: `Dabuji slide ${i + 1}...`, progress: 60 + (i / slides.length) * 40 }));
              const audio = await generateSlideAudio(slides[i].speakerNotes, voice);
              if (audio) {
                const url = await uploadToCloudinary(audio, 'auto');
@@ -226,9 +374,12 @@ const App: React.FC = () => {
     }
   };
 
-  const updateSlide = (index: number, updates: Partial<Slide>) => {
+  const updateSlide = (index: number, updates: any) => {
       setState(cur => {
           if (!cur.presentation) return cur;
+          if (index === -99) {
+             return { ...cur, presentation: { ...cur.presentation, welcomeSlide: { ...cur.presentation.welcomeSlide!, ...updates } } };
+          }
           const newSlides = [...cur.presentation.slides];
           if (newSlides[index]) newSlides[index] = { ...newSlides[index], ...updates };
           return { ...cur, presentation: { ...cur.presentation, slides: newSlides } };
@@ -238,22 +389,60 @@ const App: React.FC = () => {
   const addSlide = () => {
       setState(cur => {
           if (!cur.presentation) return cur;
+          const index = cur.presentation.slides.length;
+          const coords = getCoordinates(index);
           const newSlide: Slide = {
-              id: cur.presentation.slides.length,
+              id: Date.now(),
               title: "Nový slide",
               bulletPoints: ["Nová myšlenka"],
               speakerNotes: "",
-              imagePrompt: "Minimalist illustration"
+              imagePrompt: "Minimalist illustration",
+              x: coords.x,
+              y: coords.y,
+              z: coords.z,
+              rotateX: coords.rotateX,
+              rotateY: coords.rotateY,
+              rotateZ: coords.rotateZ,
+              layout: 'modern',
+              shape: getRandomShape()
           };
           return { ...cur, presentation: { ...cur.presentation, slides: [...cur.presentation.slides, newSlide] } };
       });
+  };
+
+  const removeSlide = (index: number) => {
+    if (!confirm("Opravdu chceš tento slide smazat?")) return;
+    setState(cur => {
+      if (!cur.presentation) return cur;
+      const newSlides = [...cur.presentation.slides];
+      newSlides.splice(index, 1);
+      
+      // Adjust currentIndex if necessary
+      let newIdx = cur.currentSlideIndex;
+      const hasWelcome = !!cur.presentation.welcomeSlide;
+      const actualSlideIdx = hasWelcome ? cur.currentSlideIndex - 1 : cur.currentSlideIndex;
+      
+      // If we deleted the current slide or one before it, we might need to shift
+      // This is complex, simplest is to just go to previous slide if current is deleted
+      if (actualSlideIdx === index) {
+        newIdx = Math.max(0, cur.currentSlideIndex - 1);
+      } else if (actualSlideIdx > index) {
+        newIdx = cur.currentSlideIndex - 1;
+      }
+
+      return { 
+        ...cur, 
+        currentSlideIndex: newIdx,
+        presentation: { ...cur.presentation, slides: newSlides } 
+      };
+    });
   };
 
   const handleGenerateAsset = async (prompt: string) => {
     if (!user) return;
     try {
       setState(p => ({ ...p, loadingStatus: 'Generuji grafický prvek...' }));
-      const stickerPrompt = `${prompt}, isolated on white background, high quality sticker, minimalist style`;
+      const stickerPrompt = `${prompt}, isolated on white background, high quality sticker, minimalist style, vibrant colors`;
       const img = await generateSlideImage(stickerPrompt);
       if (img) {
         const name = await nameAsset(img, prompt);
@@ -279,6 +468,26 @@ const App: React.FC = () => {
     }
   };
 
+  if (isReadOnly && state.step === 'preview' && state.presentation) {
+    return (
+      <PresentationViewer 
+        data={state.presentation} 
+        loadingStatus={state.loadingStatus} 
+        onReset={handleReset} 
+        onUpdateSlide={updateSlide} 
+        onAddSlide={addSlide}
+        onRemoveSlide={removeSlide}
+        onSave={undefined}
+        assets={assets}
+        onGenerateAsset={handleGenerateAsset}
+        onOpenAIDraft={undefined}
+        error={state.error}
+        onError={(msg) => setState(p => ({ ...p, error: msg }))}
+        isReadOnly={true}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#020617] text-slate-200 font-sans selection:bg-blue-500/30 overflow-x-hidden">
       <nav className="border-b border-white/5 bg-[#020617]/80 backdrop-blur-xl sticky top-0 z-50">
@@ -289,16 +498,20 @@ const App: React.FC = () => {
           </div>
           
           <div className="flex items-center gap-6">
+            <button 
+              onClick={() => setState(p => ({ ...p, step: 'dashboard' }))}
+              className={`text-[10px] font-black uppercase tracking-widest transition-all ${state.step === 'dashboard' ? 'text-blue-500' : 'text-slate-500 hover:text-white'}`}
+            >
+              Dashboard
+            </button>
+            <button 
+              onClick={() => setState(p => ({ ...p, step: 'gallery' }))}
+              className={`text-[10px] font-black uppercase tracking-widest transition-all ${state.step === 'gallery' ? 'text-indigo-500' : 'text-slate-500 hover:text-white'}`}
+            >
+              Galerie
+            </button>
             {user ? (
               <div className="flex items-center gap-4">
-                <button 
-                  onClick={() => setShowHistory(!showHistory)}
-                  className={`flex items-center gap-2 px-3 py-1 rounded-md transition-all text-xs font-bold uppercase tracking-widest border ${showHistory ? 'bg-blue-600/20 border-blue-500/50 text-blue-400' : 'border-white/10 hover:bg-white/5 text-slate-400'}`}
-                >
-                  <History size={14} />
-                  <span>Historie</span>
-                </button>
-                <div className="h-4 w-px bg-white/10"></div>
                 <div className="flex items-center gap-3">
                   <div className="flex flex-col items-end">
                     <span className="text-[10px] font-black text-white uppercase tracking-widest leading-none">{user.displayName}</span>
@@ -320,41 +533,19 @@ const App: React.FC = () => {
         </div>
       </nav>
 
-      <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
-        {/* Sidebar History (Desktop) */}
-        {user && (
-          <aside className={`w-72 border-r border-white/5 bg-[#020617]/50 flex flex-col transition-all duration-300 ${showHistory ? 'translate-x-0' : '-translate-x-full absolute'}`}>
-            <div className="p-6 border-b border-white/5 flex items-center justify-between">
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Moje práce</h2>
-              <span className="text-[10px] font-mono text-blue-500/50">{history.length}</span>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
-              {history.map(p => (
-                <div 
-                  key={p.id} 
-                  onClick={() => setState(prev => ({ ...prev, step: 'preview', presentation: p }))}
-                  className={`group p-3 rounded-lg border transition-all cursor-pointer relative ${state.presentation?.id === p.id ? 'bg-blue-600/10 border-blue-500/30' : 'bg-white/5 border-white/5 hover:border-white/20'}`}
-                >
-                  <button 
-                    onClick={(e) => handleDeleteHistory(e, p.id!)}
-                    className="absolute top-2 right-2 p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 text-slate-500 hover:text-red-400 rounded transition-all"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                  <h3 className="text-xs font-bold text-slate-200 mb-1 truncate pr-6">{p.presentationTitle}</h3>
-                  <div className="flex items-center justify-between text-[9px] font-mono text-slate-500">
-                    <span>{p.slides.length} SLIDŮ</span>
-                    <span>{p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ''}</span>
-                  </div>
-                </div>
-              ))}
-              {history.length === 0 && (
-                <div className="py-10 text-center text-[10px] font-bold uppercase tracking-widest text-slate-600">Žádná historie</div>
-              )}
-            </div>
-          </aside>
-        )}
+      {state.error && (
+        <div className="bg-red-500/20 border-y border-red-500/30 px-6 py-2 flex items-center justify-between animate-slide-down">
+          <div className="flex items-center gap-3">
+            <AlertTriangle size={14} className="text-red-400" />
+            <span className="text-[10px] font-bold text-red-100 uppercase tracking-widest">{state.error}</span>
+          </div>
+          <button onClick={() => setState(p => ({ ...p, error: undefined }))} className="text-red-400/50 hover:text-red-400 transition-colors">
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
+      <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
         <main className="flex-1 overflow-y-auto custom-scrollbar relative">
           {/* Background Decor */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full pointer-events-none overflow-hidden">
@@ -363,6 +554,16 @@ const App: React.FC = () => {
           </div>
 
           <div className="container mx-auto px-6 py-12 relative z-10">
+            {state.step === 'dashboard' && (
+              <Dashboard 
+                presentations={history}
+                onOpen={(p) => setState(prev => ({ ...prev, step: 'preview', presentation: p }))}
+                onCreateNew={handleCreateEmpty}
+                onDelete={handleDeleteHistory}
+                userName={user?.displayName || null}
+              />
+            )}
+
             {state.step === 'input' && (
               <InputSection 
                 {...state} 
@@ -370,9 +571,27 @@ const App: React.FC = () => {
                 setSlideCount={c => setState(p => ({...p, slideCount: c}))} 
                 setVoice={v => setState(p => ({...p, voice: v}))} 
                 setFiles={f => setState(p => ({...p, files: f}))} 
-                onGenerate={handleGenerateStructure} 
+                onGenerate={handleGenerateOutline} 
                 onShowDemo={() => {}} 
                 isGenerating={false} 
+                onClose={() => setState(p => ({ ...p, step: p.presentation ? 'preview' : 'dashboard' }))}
+              />
+            )}
+
+            {state.step === 'outline' && state.outline && (
+              <PresentationOutline 
+                outline={state.outline}
+                onUpdate={(newOutline) => setState(p => ({ ...p, outline: newOutline }))}
+                onGenerate={handleFullGenerate}
+                isGenerating={state.loadingStatus !== ''}
+              />
+            )}
+
+            {state.step === 'gallery' && (
+              <Gallery 
+                assets={assets}
+                onDelete={handleDeleteAsset}
+                onClose={() => setState(p => ({ ...p, step: 'dashboard' }))}
               />
             )}
             
@@ -385,12 +604,17 @@ const App: React.FC = () => {
         <PresentationViewer 
           data={state.presentation} 
           loadingStatus={state.loadingStatus} 
-          onReset={() => setState(p => ({...p, step: 'input', presentation: null}))} 
+          onReset={handleReset} 
           onUpdateSlide={updateSlide} 
           onAddSlide={addSlide}
-          onSave={user ? handleSave : undefined}
+          onRemoveSlide={removeSlide}
+          onSave={user && !isReadOnly ? handleSave : undefined}
           assets={assets}
           onGenerateAsset={handleGenerateAsset}
+          onOpenAIDraft={() => setState(p => ({ ...p, step: 'input' }))}
+          error={state.error}
+          onError={(msg) => setState(p => ({ ...p, error: msg }))}
+          isReadOnly={isReadOnly}
         />
       )}
     </div>

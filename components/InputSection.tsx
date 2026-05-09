@@ -15,10 +15,11 @@ interface InputSectionProps {
   onGenerate: () => void;
   onShowDemo: () => void;
   isGenerating: boolean;
+  onClose?: () => void;
 }
 
 export const InputSection: React.FC<InputSectionProps> = ({
-  topic, setTopic, slideCount, setSlideCount, voice, setVoice, files, setFiles, onGenerate, onShowDemo, isGenerating
+  topic, setTopic, slideCount, setSlideCount, voice, setVoice, files, setFiles, onGenerate, onShowDemo, isGenerating, onClose
 }) => {
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
@@ -102,6 +103,14 @@ export const InputSection: React.FC<InputSectionProps> = ({
 
   return (
     <div className="w-full max-w-2xl mx-auto bg-[#0a0f1e]/80 backdrop-blur-2xl border border-white/5 rounded-2xl shadow-2xl animate-fade-in relative overflow-hidden">
+      {onClose && (
+        <button 
+          onClick={onClose}
+          className="absolute top-6 right-6 z-20 p-2 bg-white/5 hover:bg-white/10 rounded-xl text-slate-500 transition-all"
+        >
+          <X size={20} />
+        </button>
+      )}
       <div className="p-8 space-y-8 relative z-10">
         <div className="text-center">
           <h1 className="text-3xl font-black text-white mb-2 tracking-tighter uppercase italic">

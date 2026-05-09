@@ -11,20 +11,21 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  const cloudName = (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_CLOUD_NAME !== 'Root') 
-    ? process.env.CLOUDINARY_CLOUD_NAME 
-    : "dio4fr3hz";
-
-  cloudinary.config({
-    cloud_name: cloudName,
-    api_key: process.env.CLOUDINARY_API_KEY || "811422534857519",
-    api_secret: process.env.CLOUDINARY_API_SECRET || "vIsqmQCXxO-xuhkWqfAwLMTu8iU",
-  });
-
   app.use(express.json({ limit: '50mb' }));
 
   app.post("/api/upload", async (req, res) => {
     try {
+      if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+        console.error("Cloudinary credentials are missing in environment variables.");
+        return res.status(500).json({ error: "Cloudinary configuration missing. Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in settings." });
+      }
+
+      cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET,
+      });
+
       const { data, folder, resource_type } = req.body;
       // data can be base64 string
       const result = await cloudinary.uploader.upload(data, {
@@ -34,7 +35,7 @@ async function startServer() {
       res.json({ url: result.secure_url });
     } catch (error) {
       console.error("Upload error:", error);
-      res.status(500).json({ error: "Upload failed" });
+      res.status(500).json({ error: error instanceof Error ? error.message : "Upload failed" });
     }
   });
 
@@ -47,7 +48,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    app.get('*all', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

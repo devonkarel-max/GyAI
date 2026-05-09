@@ -1,6 +1,7 @@
 
 import PptxGenJS from "pptxgenjs";
 import { PresentationData, Slide, WelcomeSlide, SlideAsset, Asset } from "../types";
+import { removeWhiteBackground } from "./imageUtils";
 
 // Pomocná funkce pro vyčištění textu od Markdown artefaktů
 const cleanText = (text: string): string => {
@@ -20,17 +21,16 @@ const getDynamicFontSize = (textArray: string[], baseSize: number): number => {
   
   let size = baseSize;
   
-  // Agresivnější zmenšování na základě celkového počtu znaků
-  if (totalChars > 1000) size = baseSize - 8;
-  else if (totalChars > 700) size = baseSize - 6;
-  else if (totalChars > 450) size = baseSize - 4;
-  else if (totalChars > 300) size = baseSize - 2;
+  // Agresivnější zmenšování aby se předešlo překrývání v Canva/PowerPointu
+  if (totalChars > 800) size = baseSize - 10;
+  else if (totalChars > 500) size = baseSize - 8;
+  else if (totalChars > 300) size = baseSize - 6;
+  else if (totalChars > 150) size = baseSize - 4;
   
-  // Další korekce na základě počtu položek (aby se vešly vertikálně)
-  if (itemCount > 7) size -= 2;
-  else if (itemCount > 5) size -= 1;
+  if (itemCount > 6) size -= 4;
+  else if (itemCount > 4) size -= 2;
   
-  return Math.max(size, 8); // Minimum je 8pt
+  return Math.max(size, 10);
 };
 
 // Helper to crop image to a rounded rectangle using Canvas
@@ -76,37 +76,7 @@ const processRoundedImage = async (base64Data: string, borderRadiusRatio: number
 
 // Helper to remove background (make white transparent) for sticker effect
 const removeBackground = async (base64Data: string): Promise<string> => {
-    return new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) {
-                resolve(base64Data);
-                return;
-            }
-            ctx.drawImage(img, 0, 0);
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imageData.data;
-            
-            // Simple color keying for near-white backgrounds
-            for (let i = 0; i < data.length; i += 4) {
-                const r = data[i];
-                const g = data[i + 1];
-                const b = data[i + 2];
-                // If pixel is near white, make it transparent
-                if (r > 240 && g > 240 && b > 240) {
-                    data[i + 3] = 0;
-                }
-            }
-            ctx.putImageData(imageData, 0, 0);
-            resolve(canvas.toDataURL('image/png').split(',')[1]);
-        };
-        img.onerror = () => resolve(base64Data);
-        img.src = `data:image/png;base64,${base64Data}`;
-    });
+    return removeWhiteBackground(base64Data);
 };
 
 export const generatePPTX = async (data: PresentationData, assets: Asset[] = []) => {
@@ -142,13 +112,13 @@ export const generatePPTX = async (data: PresentationData, assets: Asset[] = [])
     // Main Title
     pptSlide.addText(welcome.title.toUpperCase(), {
         x: 0.5, y: 1.5, w: 9.0, h: 2.0,
-        fontSize: 64,
+        fontSize: 42,
         fontFace: "Arial Black",
         color: TEXT_COLOR,
         bold: true,
         italic: true,
         charSpacing: -2,
-        lineSpacing: 0.9
+        lineSpacing: 1.0
     });
 
     // Accent Line
@@ -160,7 +130,7 @@ export const generatePPTX = async (data: PresentationData, assets: Asset[] = [])
     // Description
     pptSlide.addText(welcome.description, {
         x: 0.5, y: 4.0, w: 6.0, h: 1.0,
-        fontSize: 20,
+        fontSize: 16,
         fontFace: "Arial",
         color: "cbd5e1",
         bold: true
@@ -234,20 +204,20 @@ export const generatePPTX = async (data: PresentationData, assets: Asset[] = [])
         const cleanedTitle = cleanText(slideData.title);
         const cleanedBullets = slideData.bulletPoints.map(bp => cleanText(bp));
         
-        const titleFontSize = cleanedTitle.length > 40 ? 36 : 48;
-        const bulletFontSize = getDynamicFontSize(cleanedBullets, 20);
+        const titleFontSize = cleanedTitle.length > 50 ? 18 : (cleanedTitle.length > 30 ? 22 : 28);
+        const bulletFontSize = getDynamicFontSize(cleanedBullets, 13);
 
-        // Title - Bold, Italic, Large
+        // Title - Bold, Italic
         pptSlide.addText(cleanedTitle.toUpperCase(), {
-            x: 0.5, y: 0.8, w: 4.5, h: 2.5,
+            x: 0.4, y: 0.4, w: 4.8, h: 1.0,
             fontSize: titleFontSize,
             fontFace: "Arial Black",
             color: TEXT_COLOR,
             bold: true,
             italic: true,
-            valign: "middle",
-            charSpacing: -2,
-            lineSpacing: 0.9
+            valign: "top",
+            charSpacing: -1,
+            lineSpacing: 1.0
         });
 
         // Bullets with theme dots
@@ -261,21 +231,12 @@ export const generatePPTX = async (data: PresentationData, assets: Asset[] = [])
         }));
 
         pptSlide.addText(bulletObjects, {
-            x: 0.5, y: 3.5, w: 4.5, h: 2.0,
+            x: 0.5, y: 1.8, w: 4.8, h: 3.5,
             fontSize: bulletFontSize,
             fontFace: "Arial",
             color: "cbd5e1",
             paraSpaceAfter: 10,
             valign: "top",
-            bold: true
-        });
-
-        // Slide Number with theme color
-        pptSlide.addText(String(index + 1).padStart(2, '0'), {
-            x: 0.5, y: 0.3, w: 2.0, h: 0.5,
-            fontSize: 40,
-            fontFace: "Arial Black",
-            color: themeColor,
             bold: true
         });
 

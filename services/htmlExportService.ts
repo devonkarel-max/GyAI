@@ -51,7 +51,9 @@ export const generateHTMLPresentation = (data: PresentationData, options: Export
       const x = index % 3 * GAP_X; 
       const y = Math.floor(index / 3) * GAP_Y_OFFSET;
       const hasImage = !!slide.imageBase64;
+      const themeColor = data.themeColor || '#3b82f6';
       const shapeClass = slide.shape || 'rounded-[3rem]';
+      const layout = slide.layout || 'classic';
 
       // Logika pro detekci a zmenšení textu, aby nepřetékal
       const totalChars = slide.bulletPoints.reduce((acc, curr) => acc + curr.length, 0);
@@ -59,11 +61,10 @@ export const generateHTMLPresentation = (data: PresentationData, options: Export
 
       const formatText = (text: string) => {
           if (!text) return "";
-          // Odstraní #, ale převede ** na silný text
           const cleaned = text.replace(/#/g, "");
           return cleaned.split(/(\*\*.*?\*\*)/g).map(part => {
               if (part.startsWith('**') && part.endsWith('**')) {
-                  return `<strong class="text-white">${part.slice(2, -2)}</strong>`;
+                  return `<strong class="text-white font-bold">${part.slice(2, -2)}</strong>`;
               }
               return `<span>${part}</span>`;
           }).join('');
@@ -71,24 +72,82 @@ export const generateHTMLPresentation = (data: PresentationData, options: Export
 
       const bulletsHtml = (slide.bulletPoints || []).map((bp, idx) => `
           <li class="bullet-point ${options.includeAnimations ? 'opacity-0 translate-x-[-10px]' : ''} transition-all duration-700 flex items-start text-slate-200" style="transition-delay: ${idx * 100}ms">
-              <span class="w-2 h-2 rounded-full mt-2.5 mr-4 flex-shrink-0 bg-blue-500"></span>
-              <span class="leading-relaxed ${fontSizeClass}">${formatText(bp)}</span>
+              <span class="w-2 h-2 rounded-full mt-2.5 mr-4 flex-shrink-0" style="background-color: ${themeColor}"></span>
+              <span class="leading-relaxed ${fontSizeClass} font-medium tracking-tight">${formatText(bp)}</span>
           </li>`).join('');
 
+      // Definice rozvržení
+      let slideContent = "";
+
+      if (layout === 'immersive' || !hasImage) {
+        slideContent = `
+          <div class="absolute inset-0 z-0 scale-110">
+             <img src="data:image/png;base64,${slide.imageBase64}" class="w-full h-full object-cover blur-[100px] opacity-30" />
+             <div class="absolute inset-0 bg-gradient-to-b from-[#020617]/90 via-[#020617]/50 to-[#020617]/90"></div>
+          </div>
+          <div class="relative z-10 w-full h-full flex flex-col items-center justify-center text-center p-20">
+              <h2 class="text-6xl font-black text-white leading-tight tracking-tighter uppercase italic mb-10 drop-shadow-[0_15px_40px_rgba(0,0,0,1)] text-balance">
+                ${cleanMarkup(slide.title)}
+              </h2>
+              <ul class="flex flex-wrap justify-center gap-6 max-w-4xl">
+                  ${(slide.bulletPoints || []).map(bp => `
+                  <li class="px-8 py-3 bg-black/60 backdrop-blur-2xl border border-white/20 rounded-full shadow-2xl">
+                      <span class="text-2xl font-black text-white italic tracking-tight drop-shadow-[0_4px_12px_rgba(0,0,0,1)]">${cleanMarkup(bp)}</span>
+                  </li>`).join('')}
+              </ul>
+          </div>`;
+      } else if (layout === 'split') {
+        slideContent = `
+          <div class="flex w-full h-full">
+              <div class="w-1/2 relative p-8">
+                  <div class="w-full h-full ${shapeClass} overflow-hidden shadow-[0_40px_100px_rgba(0,0,0,0.6)] border border-white/10">
+                      <img src="data:image/png;base64,${slide.imageBase64}" class="w-full h-full object-cover" />
+                  </div>
+              </div>
+              <div class="w-1/2 flex flex-col justify-center p-14 pr-20">
+                  <h2 class="text-5xl font-black text-white leading-tight tracking-tighter uppercase italic mb-8 drop-shadow-lg">
+                    ${cleanMarkup(slide.title)}
+                  </h2>
+                  <div class="w-20 h-1.5 mb-10" style="background-color: ${themeColor}"></div>
+                  <ul class="space-y-6">${bulletsHtml}</ul>
+              </div>
+          </div>`;
+      } else if (layout === 'minimal') {
+        slideContent = `
+          <div class="flex w-full h-full p-10 gap-10">
+              <div class="w-[40%] flex flex-col justify-center pl-10">
+                  <h2 class="text-5xl font-black text-white leading-tight tracking-tighter uppercase italic mb-8">
+                    ${cleanMarkup(slide.title)}
+                  </h2>
+                  <ul class="space-y-5">${bulletsHtml}</ul>
+              </div>
+              <div class="w-[60%] relative flex items-center justify-center">
+                  <div class="w-full h-[85%] ${shapeClass} overflow-hidden shadow-[0_40px_100px_rgba(0,0,0,0.6)] border border-white/10 relative">
+                       <img src="data:image/png;base64,${slide.imageBase64}" class="absolute inset-0 w-full h-full object-cover blur-2xl opacity-20 scale-110" />
+                       <img src="data:image/png;base64,${slide.imageBase64}" class="relative w-full h-full object-contain z-10" />
+                  </div>
+              </div>
+          </div>`;
+      } else { // Classic layout
+        slideContent = `
+          <div class="flex w-full h-full items-center">
+              <div class="w-[55%] flex flex-col justify-center p-14 pl-20">
+                  <h2 class="text-5xl font-black text-white leading-tight tracking-tighter uppercase italic mb-8">
+                    ${cleanMarkup(slide.title)}
+                  </h2>
+                  <ul class="space-y-6">${bulletsHtml}</ul>
+              </div>
+              <div class="w-[45%] h-full p-10">
+                  <div class="w-full h-full ${shapeClass} overflow-hidden shadow-[0_40px_100px_rgba(0,0,0,0.6)] border border-white/10">
+                      <img src="data:image/png;base64,${slide.imageBase64}" class="w-full h-full object-cover" />
+                  </div>
+              </div>
+          </div>`;
+      }
+
       return `
-      <div id="slide-${index}" class="slide-card absolute w-[1000px] h-[600px] bg-[#111827]/95 backdrop-blur-3xl border border-white/5 overflow-hidden flex shadow-2xl ${shapeClass} opacity-40 scale-95 blur-[1px] grayscale-[50%]" style="left: ${x}px; top: ${y}px;" onclick="goToSlide(${index})">
-            <div class="flex w-full h-full ${slide.layout === 'reversed' && hasImage ? 'flex-row-reverse' : 'flex-row'} relative z-10">
-                <div class="${hasImage ? 'w-1/2 p-14' : 'w-full p-20 text-center'} flex flex-col justify-center">
-                    <h3 class="${hasImage ? 'text-4xl mb-6' : 'text-5xl mb-10'} font-black text-white leading-tight">${cleanMarkup(slide.title)}</h3>
-                    <ul class="space-y-4 ${!hasImage ? 'max-w-2xl mx-auto text-left' : ''}">${bulletsHtml}</ul>
-                </div>
-                ${hasImage ? `
-                <div class="w-1/2 p-8 h-full flex items-center justify-center">
-                    <div class="w-full h-full ${shapeClass} overflow-hidden bg-slate-900 border border-white/5 shadow-2xl">
-                        <img src="data:image/png;base64,${slide.imageBase64}" class="w-full h-full object-cover" />
-                    </div>
-                </div>` : ''}
-            </div>
+      <div id="slide-${index}" class="slide-card absolute w-[1200px] h-[675px] bg-[#020617] border border-white/5 overflow-hidden shadow-2xl ${shapeClass} opacity-40 scale-95 blur-[1px] grayscale-[50%]" style="left: ${x}px; top: ${y}px;" onclick="goToSlide(${index})">
+            ${slideContent}
       </div>`;
   }).join('');
 
@@ -154,12 +213,16 @@ export const generateHTMLPresentation = (data: PresentationData, options: Export
             const index = currentIndex;
             const slide = data.slides[index];
             if (!slide) return;
+
+            const zoom = Math.min(1, (window.innerWidth - 80) / 1200, (window.innerHeight - 120) / 675);
             const x = index % 3 * 1600;
             const y = Math.floor(index / 3) * 1000;
-            const camX = (window.innerWidth/2) - x - 500;
-            const camY = (window.innerHeight/2) - y - 300;
+            const camX = (window.innerWidth / 2) / zoom - (x + 600);
+            const camY = (window.innerHeight / 2) / zoom - (y + 337.5);
             
-            document.getElementById('camera').style.transform = \`translate3d(\${camX}px, \${camY}px, 0)\`;
+            const camera = document.getElementById('camera');
+            camera.style.transformOrigin = '0 0';
+            camera.style.transform = \`scale(\${zoom}) translate3d(\${camX}px, \${camY}px, 0)\`;
             
             for(let i=0; i<data.slides.length; i++) {
                 const el = document.getElementById('slide-'+i);

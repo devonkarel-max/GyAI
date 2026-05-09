@@ -35,10 +35,14 @@ export interface Slide {
   audioBase64?: string; 
   audioUrl?: string;
   animation?: 'pan' | 'pop' | 'zoom' | 'flip'; 
-  layout?: 'classic' | 'reversed' | 'modern' | 'immersive' | 'minimal';
+  layout?: 'classic' | 'reversed' | 'modern' | 'immersive' | 'minimal' | 'bento' | 'split' | 'hero' | 'gallery';
   shape?: string; 
   x?: number; 
   y?: number;
+  z?: number;
+  rotateX?: number;
+  rotateY?: number;
+  rotateZ?: number;
   assets?: SlideAsset[];
   imageValidation?: {
     isOk: boolean;
@@ -64,17 +68,24 @@ export interface PresentationData {
   createdAt?: string;
 }
 
+export interface OutlineItem {
+  title: string;
+  points: string[];
+}
+
 export interface AppState {
-  step: 'input' | 'generating' | 'preview';
+  step: 'dashboard' | 'input' | 'outline' | 'generating' | 'preview' | 'gallery';
   topic: string;
   voice: string; 
   slideCount: number;
   files: File[];
   filePreviews: string[]; 
   presentation: PresentationData | null;
+  outline: OutlineItem[] | null;
   currentSlideIndex: number;
   loadingStatus: string;
   progress: number; 
+  error?: string;
 }
 
 export enum GenerationStage {
