@@ -12,14 +12,16 @@ import { signOut } from 'firebase/auth';
 import html2canvas from 'html2canvas';
 import JSZip from 'jszip';
 
+import { chatWithAI } from '../services/aiService';
+
 interface PresentationViewerProps {
   data: PresentationData;
   loadingStatus: string;
   onReset: () => void;
   onUpdateSlide: (index: number, updates: Partial<Slide>) => void;
+  onUpdatePresentation: (updates: Partial<PresentationData>) => void;
   onAddSlide?: () => void;
   onRemoveSlide?: (index: number) => void;
-  onSave?: () => void;
   assets?: Asset[];
   onGenerateAsset?: (prompt: string) => Promise<Asset | undefined>;
   onOpenAIDraft?: () => void;
@@ -28,15 +30,99 @@ interface PresentationViewerProps {
   isReadOnly?: boolean;
 }
 
-export const PresentationViewer: React.FC<PresentationViewerProps> = ({ data, loadingStatus, onReset, onUpdateSlide, onAddSlide, onRemoveSlide, onSave, assets = [], onGenerateAsset, onOpenAIDraft, error: globalError, onError, isReadOnly = false }) => {
+const InlineEditableText: React.FC<{
+  value: string;
+  onSave: (val: string) => void;
+  className?: string;
+  multiline?: boolean;
+}> = ({ value, onSave, className, multiline }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [currentValue, setCurrentValue] = useState(value);
+
+  useEffect(() => setCurrentValue(value), [value]);
+
+  if (isEditing) {
+    return multiline ? (
+      <textarea
+        autoFocus
+        value={currentValue}
+        onChange={(e) => setCurrentValue(e.target.value)}
+        onBlur={() => { setIsEditing(false); onSave(currentValue); }}
+        className={`bg-white/5 border border-blue-500/50 rounded p-1 outline-none w-full ${className}`}
+      />
+    ) : (
+      <input
+        autoFocus
+        value={currentValue}
+        onChange={(e) => setCurrentValue(e.target.value)}
+        onBlur={() => { setIsEditing(false); onSave(currentValue); }}
+        className={`bg-white/5 border border-blue-500/50 rounded p-1 outline-none w-full ${className}`}
+      />
+    );
+  }
+
+  return (
+    <div 
+      onClick={() => setIsEditing(true)} 
+      className={`cursor-text hover:bg-white/5 transition-colors rounded p-1 ${className}`}
+    >
+      {value || (multiline ? "Klikněte pro přidání textu..." : "Klikněte pro název...")}
+    </div>
+  );
+};
+
+export const PresentationViewer: React.FC<PresentationViewerProps> = ({ data, loadingStatus, onReset, onUpdateSlide, onUpdatePresentation, onAddSlide, onRemoveSlide, assets = [], onGenerateAsset, onOpenAIDraft, error: globalError, onError, isReadOnly = false }) => {
   const [editableTitle, setEditableTitle] = useState(data?.presentationTitle || data?.topic || "Prezentace");
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [exportTab, setExportTab] = useState<'files' | 'guide'>('files');
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(true); // Always editing by default now
+  const [chatInput, setChatInput] = useState("");
   const [aiUpdatePrompt, setAiUpdatePrompt] = useState("");
   const [assetPrompt, setAssetPrompt] = useState("");
+  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'ai', text: string }[]>([
+    { role: 'ai', text: 'Ahoj! Jsem tvůj kreativní asistent. Co dnes vytvoříme?' }
+  ]);
+  const [isDocsOpen, setIsDocsOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
+  const handleSendMessage = async () => {
+    if (!chatInput.trim() || isUpdating) return;
+    
+    const userMsg = chatInput.trim();
+    setChatMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+    setChatInput("");
+    setIsUpdating(true);
+
+    try {
+      const aiResponse = await chatWithAI(userMsg, data, (name, args) => {
+        if (name === 'update_slide_content') {
+           onUpdateSlide(args.slideIndex, { 
+             title: args.title, 
+             bulletPoints: args.bulletPoints 
+           });
+        } else if (name === 'add_new_slide') {
+          onAddSlide?.(); // Simple version for now
+        } else if (name === 'remove_slide') {
+          onRemoveSlide?.(args.slideIndex);
+        } else if (name === 'change_theme_color') {
+          onUpdatePresentation({ themeColor: args.color });
+        } else if (name === 'change_slide_layout') {
+          onUpdateSlide(args.slideIndex, { layout: args.layout });
+        }
+      });
+      setChatMessages(prev => [...prev, { role: 'ai', text: aiResponse }]);
+    } catch (err: any) {
+      setChatMessages(prev => [...prev, { role: 'ai', text: "Omlouvám se, došlo k chybě při zpracování tvého požadavku." }]);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
   const [isPlaying, setIsPlaying] = useState(false);
   const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [isNotesLoading, setIsNotesLoading] = useState(false);
@@ -468,21 +554,53 @@ export const PresentationViewer: React.FC<PresentationViewerProps> = ({ data, lo
           />
       )}
 
-      {/* Right Sidebar Editor */}
-      <aside className={`fixed right-0 top-0 h-full w-80 bg-[#0a0f1e]/90 backdrop-blur-2xl border-l border-white/5 z-[60] shadow-2xl transition-transform duration-500 ease-in-out flex flex-col ${isEditing ? 'translate-x-0' : 'translate-x-full'}`}>
-          <div className="p-6 border-b border-white/5 flex justify-between items-center">
-              <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 flex items-center gap-2">
-                <Wand2 size={12} className="text-blue-500"/> Editor Slidu
-              </h4>
-              <button onClick={() => setIsEditing(false)} className="text-slate-500 hover:text-white transition-colors"><X size={16}/></button>
+      {/* Right Sidebar - ChatBot */}
+      <aside className={`fixed right-0 top-0 h-full w-[380px] bg-[#0a0f1e]/95 backdrop-blur-2xl border-l border-white/5 z-[150] shadow-2xl transition-transform duration-500 ease-in-out flex flex-col ${isEditing ? 'translate-x-0' : 'translate-x-full'}`}>
+          <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
+              <div className="flex flex-col">
+                <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 flex items-center gap-2">
+                  <Brain size={12} className="text-blue-500"/> AI Partner @ Kreativa
+                </h4>
+                <button 
+                  onClick={() => setIsDocsOpen(true)}
+                  className="text-[9px] font-bold text-blue-400 hover:text-blue-300 transition-colors uppercase tracking-widest mt-1 flex items-center gap-1"
+                >
+                  <BookOpen size={10} /> Dokumentace chatbotu
+                </button>
+              </div>
+              <button 
+                onClick={() => setIsEditing(false)} 
+                className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-slate-500 hover:text-white transition-all shadow-lg"
+              >
+                <X size={16}/>
+              </button>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
-              {isWelcomePage ? (
-                  <div className="space-y-6">
-                      <label className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Úvodní Stránka</label>
-                      <div className="space-y-4">
-                        <div className="space-y-2">
+          <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+              {chatMessages.map((msg, i) => (
+                <motion.div 
+                  key={i}
+                  initial={{ opacity: 0, x: msg.role === 'user' ? 10 : -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
+                >
+                  <div className={`max-w-[90%] p-4 rounded-2xl text-[11px] leading-relaxed tracking-wide font-medium shadow-lg ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white/5 text-slate-200 border border-white/5 rounded-tl-none'}`}>
+                    {msg.text}
+                  </div>
+                </motion.div>
+              ))}
+              {isUpdating && (
+                <div className="flex items-center gap-2 text-slate-500 ml-2">
+                  <Loader2 size={12} className="animate-spin" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest">AI Přemýšlí...</span>
+                </div>
+              )}
+              <div ref={chatEndRef} />
+          </div>
+          
+          {isWelcomePage ? (
+            <div className="flex-1 overflow-y-auto px-6 py-4 custom-scrollbar">
+                         <div className="space-y-2">
                            <span className="text-[10px] font-bold text-slate-500 uppercase">Název</span>
                            <input 
                               type="text" 
@@ -518,7 +636,6 @@ export const PresentationViewer: React.FC<PresentationViewerProps> = ({ data, lo
                             />
                         </div>
                       </div>
-                  </div>
               ) : (
                 <>
                   <div className="space-y-4">
@@ -707,8 +824,44 @@ export const PresentationViewer: React.FC<PresentationViewerProps> = ({ data, lo
                   </div>
             </>
           )}
+          <div className="p-6 border-t border-white/5 bg-black/40 backdrop-blur-xl">
+            <div className="relative flex flex-col gap-3">
+              {/* Tool presets */}
+              <div className="flex gap-2 flex-wrap pb-2">
+                 {["Vytvoř slide o...", "Změň téma", "Vylepši texty"].map(tip => (
+                   <button 
+                     key={tip}
+                     onClick={() => setChatInput(tip)}
+                     className="text-[9px] bg-white/5 hover:bg-white/10 text-slate-400 px-2 py-1 rounded border border-white/5 transition-all uppercase tracking-widest"
+                   >
+                     {tip}
+                   </button>
+                 ))}
+              </div>
+              <div className="relative">
+                <textarea 
+                 value={chatInput}
+                 onChange={(e) => setChatInput(e.target.value)}
+                 onKeyDown={(e) => {
+                   if (e.key === 'Enter' && !e.shiftKey) {
+                     e.preventDefault();
+                     handleSendMessage();
+                   }
+                 }}
+                 placeholder="Instrukce: 'Změň barvu na zelenou', 'Přidej slide o DNA'..."
+                 className="w-full h-24 bg-white/5 border border-white/10 rounded-xl p-4 pr-12 text-[11px] text-white focus:border-blue-500/50 focus:outline-none resize-none transition-all placeholder:text-slate-600"
+                />
+                <button 
+                 onClick={handleSendMessage}
+                 disabled={!chatInput.trim() || isUpdating}
+                 className="absolute right-3 bottom-3 w-10 h-10 rounded-xl bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center disabled:opacity-30 transition-all shadow-lg shadow-blue-900/40"
+                >
+                  <Sparkles size={16} />
+                </button>
+              </div>
+            </div>
           </div>
-      </aside>
+     </aside>
 
       {/* Top Navigation */}
       {!isReadOnly && (
@@ -916,34 +1069,13 @@ export const PresentationViewer: React.FC<PresentationViewerProps> = ({ data, lo
         </div>
 
         <div className="flex items-center gap-1.5">
-          {!isReadOnly && onAddSlide && (
-            <button 
-              onClick={onAddSlide}
-              className="bg-white/5 border border-white/10 text-slate-400 hover:bg-white/10 hover:text-white px-3 py-1.5 rounded-xl font-black text-[8px] uppercase tracking-widest flex items-center transition-all"
-            >
-              <Layout size={12} className="mr-2" />
-              Přidat
-            </button>
-          )}
-
           {!isReadOnly && (
             <button 
               onClick={() => setIsEditing(!isEditing)} 
-              className={`px-3 py-1.5 rounded-xl font-black text-[8px] uppercase tracking-widest flex items-center gap-1.5 transition-all border ${isEditing ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'}`}
+              className={`px-3 py-1.5 rounded-xl font-black text-[8px] uppercase tracking-widest flex items-center gap-1.5 transition-all border ${isEditing ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/20' : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'}`}
             >
-              <Wand2 size={12} />
-              {isEditing ? 'Zavřít Přizpůsobení' : 'Upravit'}
-            </button>
-          )}
-          
-          {!isReadOnly && onSave && (
-            <button 
-              onClick={onSave} 
-              disabled={loadingStatus.includes('Ukládám')}
-              className="bg-emerald-600/10 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30 px-3 py-1.5 rounded-xl font-black text-[8px] uppercase tracking-widest flex items-center transition-all disabled:opacity-50"
-            >
-              {loadingStatus.includes('Ukládám') ? <Loader2 size={12} className="mr-2 animate-spin" /> : <Save size={12} className="mr-2" />} 
-              Uložit
+              <Sparkles size={12} />
+              {isEditing ? 'Zavřít AI Parťáka' : 'AI Parťák'}
             </button>
           )}
 
@@ -954,38 +1086,18 @@ export const PresentationViewer: React.FC<PresentationViewerProps> = ({ data, lo
                 navigator.clipboard.writeText(url);
                 alert("Odkaz ke sdílení byl zkopírován do schránky!");
               }} 
-              className="bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white border border-indigo-500/30 px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center transition-all"
+              className="bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white border border-indigo-500/30 px-3 py-1.5 rounded-xl font-black text-[8px] uppercase tracking-widest flex items-center transition-all"
             >
               Sdílet
             </button>
           )}
 
-          <button 
-            onClick={handleFetchExtendedNotes}
-            disabled={hasWelcome && currentIndex === 0}
-            className="bg-white/5 border border-white/10 text-slate-400 hover:bg-white/10 hover:text-white px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center transition-all disabled:opacity-20"
-          >
-            <Brain size={14} className="mr-2" />
-            Poznámky
+          <button onClick={() => setIsExportDialogOpen(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-xl font-black text-[8px] uppercase tracking-widest flex items-center shadow-lg transition-all">
+            <MonitorPlay size={12} className="mr-1.5" /> Export
           </button>
-
-          <button onClick={() => setIsExportDialogOpen(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center shadow-lg transition-all"><MonitorPlay size={14} className="mr-2" /> Exportovat</button>
         </div>
-
-        {!isReadOnly && onOpenAIDraft && (
-          <div className="absolute left-[calc(100%+16px)]">
-            <button 
-              onClick={onOpenAIDraft}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white w-12 h-12 rounded-2xl flex items-center justify-center transition-all shadow-xl shadow-indigo-900/20 group relative"
-            >
-              <Sparkles size={20} className="group-hover:rotate-12 transition-transform" />
-              <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#0a0f1e] border border-white/10 rounded-lg text-white text-[9px] font-black uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none translate-x-[-10px] group-hover:translate-x-0">
-                AI Generátor
-              </div>
-            </button>
-          </div>
-        )}
       </div>
+
     </div>
   );
 };
