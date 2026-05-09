@@ -66,6 +66,7 @@ export interface PresentationData {
   slides: Slide[];
   sources: Source[];
   createdAt?: string;
+  isPublished?: boolean;
 }
 
 export interface OutlineItem {

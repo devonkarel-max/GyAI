@@ -47,7 +47,17 @@ export const uploadToCloudinary = async (base64Data: string, resourceType: 'imag
   }
 };
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let genAI: GoogleGenAI | null = null;
+const getAI = () => {
+  if (!genAI) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is missing. Please set it in the environment variables.");
+    }
+    genAI = new GoogleGenAI({ apiKey });
+  }
+  return genAI;
+};
 
 const addWavHeader = (base64Pcm: string): string => {
   const binaryString = atob(base64Pcm);
@@ -85,6 +95,7 @@ export const generatePresentationOutline = async (
   files: File[]
 ): Promise<{ title: string; outline: { title: string; points: string[] }[] }> => {
   try {
+    const ai = getAI();
     const rawFileParts = await Promise.all(files.map(fileToPart));
     const fileParts = rawFileParts.filter(p => p !== null) as any[];
 
@@ -136,6 +147,7 @@ export const generatePresentationFromOutline = async (
   files: File[]
 ): Promise<{ slides: Slide[]; sources: Source[]; title: string; themeColor: string; welcomeSlide: WelcomeSlide }> => {
   try {
+    const ai = getAI();
     const rawFileParts = await Promise.all(files.map(fileToPart));
     const fileParts = rawFileParts.filter(p => p !== null) as any[];
 
@@ -242,6 +254,7 @@ export const generatePresentationStructure = async (
   files: File[]
 ): Promise<{ slides: Slide[]; sources: Source[]; title: string; themeColor: string; welcomeSlide: WelcomeSlide }> => {
   try {
+    const ai = getAI();
     const rawFileParts = await Promise.all(files.map(fileToPart));
     const fileParts = rawFileParts.filter(p => p !== null) as any[];
 
@@ -383,6 +396,7 @@ export const updateSlideContent = async (slide: Slide, request: string): Promise
     }
   };
 
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: { parts: [{ text: prompt }] },
@@ -398,6 +412,7 @@ export const updateSlideContent = async (slide: Slide, request: string): Promise
 export const generateSlideImage = async (imagePrompt: string, retries = 3): Promise<string | undefined> => {
   if (!imagePrompt || imagePrompt.trim() === "") return undefined;
   try {
+    const ai = getAI();
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-image", 
       contents: {
@@ -435,6 +450,7 @@ export const generateSlideImage = async (imagePrompt: string, retries = 3): Prom
 
 export const validateImage = async (imageBase64: string, slideTitle: string, slideBullets: string[]): Promise<Slide['imageValidation']> => {
   try {
+    const ai = getAI();
     const prompt = `
       Jsi vizuální kritik. Analyzuj tento obrázek vzhledem k tématu slidu: "${slideTitle}".
       Obsah slidu: ${slideBullets.join(', ')}.
@@ -463,6 +479,7 @@ export const validateImage = async (imageBase64: string, slideTitle: string, sli
 export const generateSlideAudio = async (text: string, voiceName: string = 'Kore', retries = 3): Promise<string | undefined> => {
   if (!text || text.trim() === "") return undefined;
   try {
+    const ai = getAI();
     const response = await ai.models.generateContent({
       model: "gemini-3.1-flash-tts-preview", 
       contents: [{ parts: [{ text: text }] }],
@@ -492,6 +509,7 @@ export const previewVoice = async (voiceName: string): Promise<string | undefine
 
 export const nameAsset = async (imageBase64: string, prompt: string): Promise<string> => {
   try {
+    const ai = getAI();
     const aiPrompt = `Analyzuj tento obrázek (sticker) vygenerovaný na dotaz "${prompt}". Vymysli pro něj krátký, výstižný název v češtině (max 3 slova). Vrať pouze ten název.`;
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -524,6 +542,7 @@ export const generateExtendedNotes = async (slide: Slide, topic: string): Promis
   `;
 
   try {
+    const ai = getAI();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: { parts: [{ text: prompt }] },

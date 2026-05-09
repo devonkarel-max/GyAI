@@ -5,13 +5,14 @@ import { LoadingScreen } from './components/LoadingScreen';
 import { PresentationViewer } from './components/PresentationViewer';
 import { Dashboard } from './components/Dashboard';
 import { Gallery } from './components/Gallery';
+import { Explore } from './components/Explore';
 import { AppState, PresentationData, Slide, Asset } from './types';
 import { generatePresentationOutline, generatePresentationFromOutline, generateSlideImage, generateSlideAudio, validateImage, uploadToCloudinary, nameAsset } from './services/geminiService';
 import { PresentationOutline } from './components/PresentationOutline';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, User, signOut } from 'firebase/auth';
-import { collection, addDoc, query, where, getDocs, serverTimestamp, orderBy } from 'firebase/firestore';
-import { LogIn, History, Plus, LogOut, Trash2, AlertTriangle, X } from 'lucide-react';
+import { collection, addDoc, query, where, getDocs, serverTimestamp, orderBy, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { LogIn, History, Plus, LogOut, Trash2, AlertTriangle, X, Compass } from 'lucide-react';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -95,7 +96,6 @@ const App: React.FC = () => {
   const loadSharedPresentation = async (id: string) => {
     try {
       setState(p => ({ ...p, step: 'generating', loadingStatus: 'Načítám sdílenou prezentaci...', progress: 30 }));
-      const { doc, getDoc } = await import('firebase/firestore');
       const docSnap = await getDoc(doc(db, 'presentations', id));
       
       if (docSnap.exists()) {
@@ -147,18 +147,17 @@ const App: React.FC = () => {
     e.stopPropagation();
     if (!confirm("Opravdu chceš tuto prezentaci smazat?")) return;
     try {
-      const { deleteDoc, doc } = await import('firebase/firestore');
       await deleteDoc(doc(db, 'presentations', id));
       setHistory(prev => prev.filter(p => p.id !== id));
     } catch (error) {
       console.error("Delete error:", error);
+      alert("Nepodařilo se smazat prezentaci. Zkontroluj připojení nebo oprávnění.");
     }
   };
 
   const handleDeleteAsset = async (id: string) => {
     if (!confirm("Opravdu chceš tento vizuál smazat?")) return;
     try {
-      const { deleteDoc, doc } = await import('firebase/firestore');
       await deleteDoc(doc(db, 'assets', id));
       setAssets(prev => prev.filter(a => a.id !== id));
     } catch (error) {
@@ -357,7 +356,6 @@ const App: React.FC = () => {
       });
 
       if (isUpdate) {
-        const { doc, updateDoc } = await import('firebase/firestore');
         await updateDoc(doc(db, 'presentations', state.presentation.id!), docData);
       } else {
         const docRef = await addDoc(collection(db, 'presentations'), docData);
@@ -384,6 +382,13 @@ const App: React.FC = () => {
           if (newSlides[index]) newSlides[index] = { ...newSlides[index], ...updates };
           return { ...cur, presentation: { ...cur.presentation, slides: newSlides } };
       });
+  };
+
+  const updatePresentation = (updates: Partial<PresentationData>) => {
+    setState(cur => {
+      if (!cur.presentation) return cur;
+      return { ...cur, presentation: { ...cur.presentation, ...updates } };
+    });
   };
 
   const addSlide = () => {
@@ -475,6 +480,7 @@ const App: React.FC = () => {
         loadingStatus={state.loadingStatus} 
         onReset={handleReset} 
         onUpdateSlide={updateSlide} 
+        onUpdatePresentation={updatePresentation}
         onAddSlide={addSlide}
         onRemoveSlide={removeSlide}
         onSave={undefined}
@@ -503,6 +509,12 @@ const App: React.FC = () => {
               className={`text-[10px] font-black uppercase tracking-widest transition-all ${state.step === 'dashboard' ? 'text-blue-500' : 'text-slate-500 hover:text-white'}`}
             >
               Dashboard
+            </button>
+            <button 
+              onClick={() => setState(p => ({ ...p, step: 'explore' }))}
+              className={`text-[10px] font-black uppercase tracking-widest transition-all ${state.step === 'explore' ? 'text-blue-500' : 'text-slate-500 hover:text-white'}`}
+            >
+              Explore
             </button>
             <button 
               onClick={() => setState(p => ({ ...p, step: 'gallery' }))}
@@ -594,6 +606,16 @@ const App: React.FC = () => {
                 onClose={() => setState(p => ({ ...p, step: 'dashboard' }))}
               />
             )}
+
+            {state.step === 'explore' && (
+              <Explore 
+                onOpen={(p) => {
+                   setState(prev => ({ ...prev, step: 'preview', presentation: p }));
+                   setIsReadOnly(true);
+                }}
+                onClose={() => setState(p => ({ ...p, step: 'dashboard' }))}
+              />
+            )}
             
             {state.step === 'generating' && <LoadingScreen status={state.loadingStatus} progress={state.progress} />}
           </div>
@@ -606,6 +628,7 @@ const App: React.FC = () => {
           loadingStatus={state.loadingStatus} 
           onReset={handleReset} 
           onUpdateSlide={updateSlide} 
+          onUpdatePresentation={updatePresentation}
           onAddSlide={addSlide}
           onRemoveSlide={removeSlide}
           onSave={user && !isReadOnly ? handleSave : undefined}

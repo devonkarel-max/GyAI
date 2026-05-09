@@ -40,7 +40,8 @@ service cloud.firestore {
     }
 
     match /presentations/{presentationId} {
-      allow read: if isDocOwner();
+      allow get: if resource.data.isPublished == true || isDocOwner();
+      allow list: if resource.data.isPublished == true || isDocOwner();
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidPresentation(request.resource.data);
       allow update: if isDocOwner() && isValidPresentation(request.resource.data);
       allow delete: if isDocOwner();

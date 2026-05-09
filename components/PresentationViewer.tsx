@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PresentationData, Slide, Asset, SlideAsset } from '../types';
-import { ChevronLeft, ChevronRight, Download, RefreshCw, MonitorPlay, Wand2, X, Info, Layout, Printer, Image as ImageIcon, CheckCircle2, AlertTriangle, Upload, Sparkles, Loader2, Save, Volume2, LogOut, Trash2, Plus, MousePointer2, RotateCcw, Brain, FileText, BookOpen, Library } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, RefreshCw, MonitorPlay, Wand2, X, Info, Layout, Printer, Image as ImageIcon, CheckCircle2, AlertTriangle, Upload, Sparkles, Loader2, Save, Volume2, LogOut, Trash2, Plus, MousePointer2, RotateCcw, Brain, FileText, BookOpen, Library, Compass } from 'lucide-react';
 import { generatePPTX } from '../services/pptxService';
 import { generateHTMLPresentation, ExportOptions } from '../services/htmlExportService';
 import { updateSlideContent, generateSlideImage, validateImage, generateSlideAudio, uploadToCloudinary, generateExtendedNotes } from '../services/geminiService';
@@ -76,7 +76,7 @@ export const PresentationViewer: React.FC<PresentationViewerProps> = ({ data, lo
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [exportTab, setExportTab] = useState<'files' | 'guide'>('files');
-  const [isEditing, setIsEditing] = useState(true); // Always editing by default now
+  const [isEditing, setIsEditing] = useState(!isReadOnly); 
   const [chatInput, setChatInput] = useState("");
   const [aiUpdatePrompt, setAiUpdatePrompt] = useState("");
   const [assetPrompt, setAssetPrompt] = useState("");
@@ -1089,6 +1089,16 @@ export const PresentationViewer: React.FC<PresentationViewerProps> = ({ data, lo
               className="bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white border border-indigo-500/30 px-3 py-1.5 rounded-xl font-black text-[8px] uppercase tracking-widest flex items-center transition-all"
             >
               Sdílet
+            </button>
+          )}
+
+          {!isReadOnly && data.id && (
+            <button 
+              onClick={() => onUpdatePresentation({ isPublished: !data.isPublished })}
+              className={`px-3 py-1.5 rounded-xl font-black text-[8px] uppercase tracking-widest flex items-center gap-1.5 transition-all border ${data.isPublished ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-white/5 border-white/10 text-slate-400'}`}
+            >
+              <Compass size={12} />
+              {data.isPublished ? 'Publikováno' : 'Publikovat'}
             </button>
           )}
 
