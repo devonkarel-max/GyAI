@@ -12,7 +12,7 @@ import { PresentationOutline } from './components/PresentationOutline';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, User, signOut } from 'firebase/auth';
 import { collection, addDoc, query, where, getDocs, serverTimestamp, orderBy, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
-import { LogIn, History, Plus, LogOut, Trash2, AlertTriangle, X, Compass } from 'lucide-react';
+import { LogIn, History, Plus, LogOut, Trash2, AlertTriangle, X, Compass, Library } from 'lucide-react';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -149,6 +149,7 @@ const App: React.FC = () => {
     try {
       await deleteDoc(doc(db, 'presentations', id));
       setHistory(prev => prev.filter(p => p.id !== id));
+      alert("Smazáno!");
     } catch (error) {
       console.error("Delete error:", error);
       alert("Nepodařilo se smazat prezentaci. Zkontroluj připojení nebo oprávnění.");
@@ -160,6 +161,7 @@ const App: React.FC = () => {
     try {
       await deleteDoc(doc(db, 'assets', id));
       setAssets(prev => prev.filter(a => a.id !== id));
+      alert("Smazáno!");
     } catch (error) {
       console.error("Delete asset error:", error);
     }
@@ -495,8 +497,8 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-200 font-sans selection:bg-blue-500/30 overflow-x-hidden">
-      <nav className="border-b border-white/5 bg-[#020617]/80 backdrop-blur-xl sticky top-0 z-50">
+    <div className="flex flex-col h-full bg-[#020617] text-slate-200 font-sans selection:bg-blue-500/30">
+      <nav className="border-b border-white/5 bg-[#020617]/80 backdrop-blur-xl sticky top-0 z-50 flex-shrink-0">
         <div className="container mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setState(p => ({...p, step: 'input', presentation: null}))}>
             <div className="w-7 h-7 bg-blue-600 rounded flex items-center justify-center font-black text-white group-hover:rotate-12 transition-transform">G</div>
@@ -506,21 +508,24 @@ const App: React.FC = () => {
           <div className="flex items-center gap-6">
             <button 
               onClick={() => setState(p => ({ ...p, step: 'dashboard' }))}
-              className={`text-[10px] font-black uppercase tracking-widest transition-all ${state.step === 'dashboard' ? 'text-blue-500' : 'text-slate-500 hover:text-white'}`}
+              className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all ${state.step === 'dashboard' ? 'text-blue-500' : 'text-slate-500 hover:text-white'}`}
             >
-              Dashboard
+              <History size={14} />
+              <span>Dashboard</span>
             </button>
             <button 
               onClick={() => setState(p => ({ ...p, step: 'explore' }))}
-              className={`text-[10px] font-black uppercase tracking-widest transition-all ${state.step === 'explore' ? 'text-blue-500' : 'text-slate-500 hover:text-white'}`}
+              className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all ${state.step === 'explore' ? 'text-blue-500' : 'text-slate-500 hover:text-white'}`}
             >
-              Explore
+              <Compass size={14} />
+              <span>Explore</span>
             </button>
             <button 
               onClick={() => setState(p => ({ ...p, step: 'gallery' }))}
-              className={`text-[10px] font-black uppercase tracking-widest transition-all ${state.step === 'gallery' ? 'text-indigo-500' : 'text-slate-500 hover:text-white'}`}
+              className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all ${state.step === 'gallery' ? 'text-indigo-500' : 'text-slate-500 hover:text-white'}`}
             >
-              Galerie
+              <Library size={14} />
+              <span>Galerie</span>
             </button>
             {user ? (
               <div className="flex items-center gap-4">

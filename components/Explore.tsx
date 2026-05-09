@@ -27,7 +27,6 @@ export const Explore: React.FC<ExploreProps> = ({ onOpen, onClose }) => {
       const q = query(
         collection(db, 'presentations'),
         where('isPublished', '==', true),
-        orderBy('createdAt', 'desc'),
         limit(50)
       );
       const snapshot = await getDocs(q);
